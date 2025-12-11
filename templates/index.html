@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="El Rincón de la Sole - Descubre productos únicos y especiales seleccionados con cariño">
+    <meta name="keywords" content="productos, tienda, el rincón de la sole, artesanía, especial">
+    <meta name="author" content="El Rincón de la Sole">
+    <meta property="og:title" content="El Rincón de la Sole">
+    <meta property="og:description" content="Descubre productos únicos y especiales">
+    <meta property="og:type" content="website">
+    <title>El Rincón de la Sole - Productos Únicos</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+
+    <style>
+        :root {
+            --primary-color: {{ config.primary_color }};
+            --background-color: {{ config.background_color }};
+            --product-bg-color: {{ config.product_bg_color }};
+        }
+
+        /* BOTÓN WHATSAPP FLOTANTE */
+        .whatsapp-float {
+            position: fixed;
+            width: 60px;
+            height: 60px;
+            bottom: 25px;
+            right: 25px;
+            background-color: #25d366;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            z-index: 1000;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: transform 0.2s ease-in-out;
+        }
+        .whatsapp-float:hover {
+            transform: scale(1.1);
+        }
+        .whatsapp-float img {
+            width: 35px;
+            height: 35px;
+        }
+
+        /* CONTACTO EN HERO */
+        .contact-line {
+            margin-top: 12px;
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .whatsapp-inline {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 6px;
+            padding: 6px 10px;
+            background: #25d366;
+            color: #fff;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .whatsapp-inline img {
+            width: 22px;
+            height: 22px;
+            margin-right: 5px;
+        }
+    </style>
+
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="container">
+                <h1 class="logo">El Rincón de la Sole</h1>
+                <a href="/login" class="admin-link">Administrador</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <h2>Bienvenidos a El Rincón de la Sole</h2>
+                <p>Descubre productos únicos seleccionados especialmente para ti</p>
+
+                <p class="contact-line">
+                    Contactanos:
+                    <a href="https://wa.me/54{{ config.whatsapp_number }}" target="_blank" class="whatsapp-inline">
+                        <img src="/static/img/whatsapp.png" alt="WhatsApp">
+                        {{ config.whatsapp_number }}
+                    </a>
+                </p>
+            </div>
+        </section>
+
+        <section class="products">
+            <div class="container">
+                <h3>Nuestros Productos</h3>
+                
+                {% if products %}
+                <div class="products-grid">
+                    {% for product in products %}
+                    <div class="product-card">
+                        {% if product.image %}
+                        <img src="data:image/jpeg;base64,{{ product.image }}" alt="{{ product.name }}">
+                        {% else %}
+                        <div class="no-image">Sin imagen</div>
+                        {% endif %}
+                        <div class="product-info">
+                            <h4>{{ product.name }}</h4>
+                            {% if product.description %}
+                            <p class="description">{{ product.description }}</p>
+                            {% endif %}
+                            {% if product.price %}
+                            <p class="price">${{ "%.2f"|format(product.price) }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                {% else %}
+                <p class="no-products">No hay productos disponibles por el momento.</p>
+                {% endif %}
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 El Rincón de la Sole. Todos los derechos reservados.</p>
+        </div>
+    </footer>
+
+    <!-- BOTÓN WHATSAPP FLOTANTE -->
+    <a href="https://wa.me/54{{ config.whatsapp_number }}" class="whatsapp-float" target="_blank">
+        <img src="/static/img/whatsapp.png" alt="WhatsApp">
+    </a>
+
+</body>
+</html>
