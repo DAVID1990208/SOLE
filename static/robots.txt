@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+Disallow: /login
+Disallow: /dashboard
+Disallow: /forgot-password
+Disallow: /reset-password
+
+Sitemap: https://el-rincon-de-la-sole.onrender.com/static/sitemap.xml
