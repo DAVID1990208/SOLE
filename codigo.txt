@@ -1,4 +1,4 @@
-main.py
+###main.py###
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Form, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -61,6 +61,8 @@ class SiteConfig(Base):
     primary_color = Column(String, default="#ff6b9d")
     background_color = Column(String, default="#fff5f8")
     product_bg_color = Column(String, default="#ffffff")
+    whatsapp_number = Column(String, default="1121820759")  # ← NUEVO
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -103,6 +105,7 @@ class SiteConfigUpdate(BaseModel):
     primary_color: Optional[str] = None
     background_color: Optional[str] = None
     product_bg_color: Optional[str] = None
+    whatsapp_number: Optional[str] = None   # ← NUEVO
 
 # Dependencias
 def get_db():
@@ -368,7 +371,8 @@ async def get_config(db: Session = Depends(get_db)):
     return {
         "primary_color": config.primary_color,
         "background_color": config.background_color,
-        "product_bg_color": config.product_bg_color
+        "product_bg_color": config.product_bg_color,
+        "whatsapp_number": config.whatsapp_number  # ← NUEVO
     }
 
 @app.put("/api/config")
@@ -388,6 +392,9 @@ async def update_config(
         config.background_color = config_update.background_color
     if config_update.product_bg_color:
         config.product_bg_color = config_update.product_bg_color
+    if config_update.whatsapp_number:
+        config.whatsapp_number = config_update.whatsapp_number  # ← NUEVO
+
     
     db.commit()
     return {"message": "Configuration updated successfully"}
@@ -395,8 +402,821 @@ async def update_config(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
------------------------------------------------------------------------------
-index.html
+
+--------------------------------------------------------
+##requirements.txt####
+fastapi==0.104.1
+uvicorn==0.23.2
+sqlalchemy==2.0.23
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
+jinja2==3.1.2
+# Pydantic v1 (sin Rust, compatible con Render)
+pydantic[email]==1.10.13
+------------------------------------------------------
+###render.yaml###
+services:
+  - type: web
+    name: el-rincon-de-la-sole
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SMTP_SERVER
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: BASE_URL
+        sync: false
+---------------------------------------------------------------
+###.env###
+# Copia este archivo como .env y configura tus valores
+
+# Clave secreta para JWT (genera una con: python -c "import secrets; print(secrets.token_urlsafe(32))")
+SECRET_KEY=sole1550
+
+# Configuración SMTP para envío de emails
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=tu_email@gmail.com
+SMTP_PASSWORD=tu_password_de_aplicacion_gmail
+
+# URL base de tu aplicación
+BASE_URL=http://localhost:8000
+
+# Para Gmail:
+# 1. Habilita la verificación en 2 pasos en tu cuenta de Google
+# 2. Ve a https://myaccount.google.com/apppasswords
+# 3. Genera una "Contraseña de aplicación"
+# 4. Usa esa contraseña en SMTP_PASSWORD
+------------------------------------------------------------
+###static/js/dashboard.js###
+// =========================
+//   VERIFICAR AUTENTICACIÓN
+// =========================
+const token = localStorage.getItem('token');
+if (!token) {
+    window.location.href = '/login';
+}
+
+const authHeaders = {
+    'Authorization': `Bearer ${token}`
+};
+
+// =========================
+//   VARIABLES GLOBALES
+// =========================
+let currentEditId = null;
+
+// =========================
+//   TABS
+// =========================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const tabName = btn.dataset.tab;
+
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+
+        btn.classList.add('active');
+        document.getElementById(`${tabName}-tab`).classList.add('active');
+
+        if (tabName === 'products') loadProducts();
+        if (tabName === 'config') loadConfig();
+    });
+});
+
+// =========================
+//   LOGOUT
+// =========================
+document.getElementById('logoutBtn').addEventListener('click', () => {
+    localStorage.removeItem('token');
+    window.location.href = '/login';
+});
+
+// =========================
+//   CARGAR PRODUCTOS
+// =========================
+async function loadProducts() {
+    try {
+        const response = await fetch('/api/products', {
+            headers: authHeaders
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+            return;
+        }
+
+        const products = await response.json();
+        const productsList = document.getElementById('productsList');
+
+        if (products.length === 0) {
+            productsList.innerHTML = '<p class="no-products">No hay productos. Agrega el primero.</p>';
+            return;
+        }
+
+        productsList.innerHTML = products.map(p => `
+            <div class="product-item">
+                <img src="data:image/jpeg;base64,${p.image}" alt="${p.name}">
+                <div class="product-item-info">
+                    <h4>${p.name}</h4>
+                    ${p.description ? `<p>${p.description}</p>` : ''}
+                    ${p.price ? `<p><strong>$${p.price.toFixed(2)}</strong></p>` : ''}
+                </div>
+                <div class="product-item-actions">
+                    <button class="btn-edit" onclick="editProduct(${p.id})">Editar</button>
+                    <button class="btn-delete" onclick="deleteProduct(${p.id})">Eliminar</button>
+                </div>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        showMessage('Error al cargar productos', 'error');
+    }
+}
+
+// =========================
+//   MODAL PRODUCTOS
+// =========================
+const modal = document.getElementById('productModal');
+const addBtn = document.getElementById('addProductBtn');
+const closeBtn = document.querySelector('.close');
+
+addBtn.onclick = () => {
+    currentEditId = null;
+    document.getElementById('modalTitle').textContent = 'Agregar Producto';
+    document.getElementById('productForm').reset();
+    document.getElementById('productId').value = '';
+    document.getElementById('imagePreview').style.display = 'none';
+    document.getElementById('productImage').required = true;
+    modal.classList.add('active');
+};
+
+closeBtn.onclick = closeProductModal;
+
+window.onclick = (e) => {
+    if (e.target === modal) closeProductModal();
+};
+
+function closeProductModal() {
+    modal.classList.remove('active');
+}
+
+// =========================
+//   PREVIEW IMAGEN
+// =========================
+document.getElementById('productImage').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const preview = document.getElementById('imagePreview');
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+    }
+});
+
+// =========================
+//   GUARDAR PRODUCTO
+// =========================
+document.getElementById('productForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData();
+    formData.append('name', document.getElementById('productName').value);
+    formData.append('description', document.getElementById('productDescription').value);
+    formData.append('price', document.getElementById('productPrice').value || '');
+
+    const imageFile = document.getElementById('productImage').files[0];
+    if (imageFile) formData.append('image', imageFile);
+
+    try {
+        let url = '/api/products';
+        let method = 'POST';
+
+        if (currentEditId) {
+            url = `/api/products/${currentEditId}`;
+            method = 'PUT';
+        }
+
+        const response = await fetch(url, {
+            method,
+            headers: authHeaders,
+            body: formData
+        });
+
+        if (response.ok) {
+            showMessage('Producto guardado exitosamente', 'success');
+            closeProductModal();
+            loadProducts();
+        } else {
+            const data = await response.json();
+            showMessage(data.detail || 'Error al guardar producto', 'error');
+        }
+    } catch (error) {
+        showMessage('Error de conexión', 'error');
+    }
+});
+
+// =========================
+//   EDITAR PRODUCTO
+// =========================
+async function editProduct(id) {
+    try {
+        const response = await fetch('/api/products', {
+            headers: authHeaders
+        });
+        const products = await response.json();
+        const product = products.find(p => p.id === id);
+
+        if (product) {
+            currentEditId = id;
+            document.getElementById('modalTitle').textContent = 'Editar Producto';
+            document.getElementById('productId').value = id;
+            document.getElementById('productName').value = product.name;
+            document.getElementById('productDescription').value = product.description || '';
+            document.getElementById('productPrice').value = product.price || '';
+            document.getElementById('productImage').required = false;
+
+            if (product.image) {
+                const preview = document.getElementById('imagePreview');
+                preview.src = `data:image/jpeg;base64,${product.image}`;
+                preview.style.display = 'block';
+            }
+
+            modal.classList.add('active');
+        }
+    } catch (error) {
+        showMessage('Error al cargar producto', 'error');
+    }
+}
+
+// =========================
+//   ELIMINAR PRODUCTO
+// =========================
+async function deleteProduct(id) {
+    if (!confirm('¿Estás seguro de eliminar este producto?')) return;
+
+    try {
+        const response = await fetch(`/api/products/${id}`, {
+            method: 'DELETE',
+            headers: authHeaders
+        });
+
+        if (response.ok) {
+            showMessage('Producto eliminado exitosamente', 'success');
+            loadProducts();
+        } else {
+            showMessage('Error al eliminar producto', 'error');
+        }
+    } catch (error) {
+        showMessage('Error de conexión', 'error');
+    }
+}
+
+// =========================
+//   CARGAR CONFIGURACIÓN
+// =========================
+async function loadConfig() {
+    try {
+        const response = await fetch('/api/config');
+        const config = await response.json();
+
+        document.getElementById('primaryColor').value = config.primary_color;
+        document.getElementById('backgroundColor').value = config.background_color;
+        document.getElementById('productBgColor').value = config.product_bg_color;
+
+        // ⭐ NUEVO: WhatsApp
+        document.getElementById('whatsappNumber').value = config.whatsapp_number || '';
+
+    } catch (error) {
+        showMessage('Error al cargar configuración', 'error');
+    }
+}
+
+// =========================
+//   GUARDAR CONFIGURACIÓN
+// =========================
+document.getElementById('configForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const config = {
+        primary_color: document.getElementById('primaryColor').value,
+        background_color: document.getElementById('backgroundColor').value,
+        product_bg_color: document.getElementById('productBgColor').value,
+        
+        // ⭐ NUEVO
+        whatsapp_number: document.getElementById('whatsappNumber').value
+    };
+
+    try {
+        const response = await fetch('/api/config', {
+            method: 'PUT',
+            headers: {
+                ...authHeaders,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(config)
+        });
+
+        if (response.ok) {
+            showMessage('Configuración guardada exitosamente', 'success');
+        } else {
+            showMessage('Error al guardar configuración', 'error');
+        }
+    } catch (error) {
+        showMessage('Error de conexión', 'error');
+    }
+});
+
+// =========================
+//   NOTIFICACIONES
+// =========================
+function showMessage(text, type) {
+    const messageDiv = document.getElementById('message');
+    messageDiv.textContent = text;
+    messageDiv.className = `message ${type}`;
+
+    setTimeout(() => {
+        messageDiv.className = 'message';
+    }, 4000);
+}
+
+// =========================
+//   INICIALIZAR
+// =========================
+loadProducts();
+----------------------------------------------------------------
+###static/css/style.css###
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --primary-color: #ff6b9d;
+    --background-color: #fff5f8;
+    --product-bg-color: #ffffff;
+    --text-color: #333;
+    --border-color: #e0e0e0;
+    --shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* Header */
+header {
+    background: white;
+    box-shadow: var(--shadow);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+nav {
+    padding: 1rem 0;
+}
+
+nav .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.logo {
+    color: var(--primary-color);
+    font-size: 1.8rem;
+    font-weight: bold;
+}
+
+.admin-link, .nav-links a {
+    color: var(--primary-color);
+    text-decoration: none;
+    padding: 0.5rem 1rem;
+    border: 2px solid var(--primary-color);
+    border-radius: 5px;
+    transition: all 0.3s;
+}
+
+.admin-link:hover, .nav-links a:hover {
+    background: var(--primary-color);
+    color: white;
+}
+
+.nav-links {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+/* Hero Section */
+.hero {
+    background: linear-gradient(135deg, var(--primary-color), #ff9dbf);
+    color: white;
+    padding: 4rem 0;
+    text-align: center;
+}
+
+.hero h2 {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+}
+
+.hero p {
+    font-size: 1.2rem;
+    opacity: 0.95;
+}
+
+/* Products Section */
+.products {
+    padding: 3rem 0;
+}
+
+.products h3 {
+    text-align: center;
+    font-size: 2rem;
+    margin-bottom: 2rem;
+    color: var(--primary-color);
+}
+
+.products-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 2rem;
+}
+
+.product-card {
+    background: var(--product-bg-color);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    transition: transform 0.3s;
+}
+
+.product-card:hover {
+    transform: translateY(-5px);
+}
+
+.product-card img, .no-image {
+    width: 100%;
+    height: 250px;
+    object-fit: cover;
+}
+
+.no-image {
+    background: var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #999;
+}
+
+.product-info {
+    padding: 1.5rem;
+}
+
+.product-info h4 {
+    font-size: 1.3rem;
+    margin-bottom: 0.5rem;
+    color: var(--primary-color);
+}
+
+.product-info .description {
+    color: #666;
+    margin-bottom: 1rem;
+}
+
+.product-info .price {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--primary-color);
+}
+
+.no-products {
+    text-align: center;
+    font-size: 1.2rem;
+    color: #999;
+    padding: 3rem 0;
+}
+
+/* Footer */
+footer {
+    background: white;
+    padding: 2rem 0;
+    margin-top: 3rem;
+    text-align: center;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
+}
+
+/* Auth Pages */
+.auth-container {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.auth-card {
+    background: white;
+    padding: 2rem;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    width: 100%;
+    max-width: 400px;
+}
+
+.auth-card h2 {
+    color: var(--primary-color);
+    margin-bottom: 0.5rem;
+}
+
+.auth-card .subtitle {
+    color: #666;
+    margin-bottom: 2rem;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.form-group input, .form-group textarea, .form-group select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid var(--border-color);
+    border-radius: 5px;
+    font-size: 1rem;
+}
+
+.form-group input:focus, .form-group textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.btn-primary, .btn-secondary {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 5px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background: var(--primary-color);
+    color: white;
+    width: 100%;
+}
+
+.btn-primary:hover {
+    background: #ff5289;
+}
+
+.btn-secondary {
+    background: white;
+    color: var(--primary-color);
+    border: 2px solid var(--primary-color);
+}
+
+.btn-secondary:hover {
+    background: var(--background-color);
+}
+
+.auth-links {
+    margin-top: 1.5rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.auth-links a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.auth-links a:hover {
+    text-decoration: underline;
+}
+
+.message {
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 5px;
+    display: none;
+}
+
+.message.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+    display: block;
+}
+
+.message.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    display: block;
+}
+
+/* Dashboard */
+.dashboard {
+    padding: 2rem 0;
+}
+
+.dashboard-tabs {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.tab-btn {
+    padding: 1rem 2rem;
+    background: none;
+    border: none;
+    font-size: 1rem;
+    cursor: pointer;
+    color: #666;
+    border-bottom: 3px solid transparent;
+    transition: all 0.3s;
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.products-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.product-item {
+    background: white;
+    padding: 1rem;
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.product-item img {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+    border-radius: 5px;
+}
+
+.product-item-info {
+    flex: 1;
+}
+
+.product-item-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.btn-edit, .btn-delete {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.btn-edit {
+    background: #ffc107;
+    color: white;
+}
+
+.btn-delete {
+    background: #dc3545;
+    color: white;
+}
+
+/* Modal */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+}
+
+.modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background-color: white;
+    padding: 2rem;
+    border-radius: 10px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.close {
+    float: right;
+    font-size: 2rem;
+    font-weight: bold;
+    cursor: pointer;
+    color: #999;
+}
+
+.close:hover {
+    color: #333;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.form-actions button {
+    flex: 1;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .hero h2 {
+        font-size: 2rem;
+    }
+    
+    .products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    }
+    
+    .nav-links {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .section-header {
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .product-item {
+        flex-direction: column;
+    }
+}
+-----------------------------------------------------
+#######index.html#####
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -410,13 +1230,66 @@ index.html
     <meta property="og:type" content="website">
     <title>El Rincón de la Sole - Productos Únicos</title>
     <link rel="stylesheet" href="/static/css/style.css">
+
     <style>
         :root {
             --primary-color: {{ config.primary_color }};
             --background-color: {{ config.background_color }};
             --product-bg-color: {{ config.product_bg_color }};
         }
+
+        /* BOTÓN WHATSAPP FLOTANTE */
+        .whatsapp-float {
+            position: fixed;
+            width: 60px;
+            height: 60px;
+            bottom: 25px;
+            right: 25px;
+            background-color: #25d366;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            z-index: 1000;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: transform 0.2s ease-in-out;
+        }
+        .whatsapp-float:hover {
+            transform: scale(1.1);
+        }
+        .whatsapp-float img {
+            width: 35px;
+            height: 35px;
+        }
+
+        /* CONTACTO EN HERO */
+        .contact-line {
+            margin-top: 12px;
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .whatsapp-inline {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 6px;
+            padding: 6px 10px;
+            background: #25d366;
+            color: #fff;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .whatsapp-inline img {
+            width: 22px;
+            height: 22px;
+            margin-right: 5px;
+        }
     </style>
+
 </head>
 <body>
     <header>
@@ -424,7 +1297,6 @@ index.html
             <div class="container">
                 <h1 class="logo">El Rincón de la Sole</h1>
                 <a href="/login" class="admin-link">Administrador</a>
-                
             </div>
         </nav>
     </header>
@@ -434,7 +1306,14 @@ index.html
             <div class="container">
                 <h2>Bienvenidos a El Rincón de la Sole</h2>
                 <p>Descubre productos únicos seleccionados especialmente para ti</p>
-                <p>Contactanos al : 1121820759</p>
+
+                <p class="contact-line">
+                    Contactanos:
+                    <a href="https://wa.me/54{{ config.whatsapp_number }}" target="_blank" class="whatsapp-inline">
+                        <img src="/static/img/whatsapp.png" alt="WhatsApp">
+                        {{ config.whatsapp_number }}
+                    </a>
+                </p>
             </div>
         </section>
 
@@ -463,8 +1342,9 @@ index.html
                     </div>
                     {% endfor %}
                 </div>
+
                 {% else %}
-                <p class="no-products">No hay productos disponibles en este momento.</p>
+                <p class="no-products">No hay productos disponibles por el momento.</p>
                 {% endif %}
             </div>
         </section>
@@ -475,10 +1355,16 @@ index.html
             <p>&copy; 2024 El Rincón de la Sole. Todos los derechos reservados.</p>
         </div>
     </footer>
+
+    <!-- BOTÓN WHATSAPP FLOTANTE -->
+    <a href="https://wa.me/54{{ config.whatsapp_number }}" class="whatsapp-float" target="_blank">
+        <img src="/static/img/whatsapp.png" alt="WhatsApp">
+    </a>
+
 </body>
 </html>
---------------------------------------------------------------------------------------
-dashboard.html
+---------------------------------------
+#####dashboard.html#####
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -492,7 +1378,7 @@ dashboard.html
     <header>
         <nav>
             <div class="container">
-                <h1 class="logo">Dashboard - El Rincón de la Sole</h1>
+                <h1 class="logo">El Rincón de la Sole</h1>
                 <div class="nav-links">
                     <a href="/" target="_blank">Ver Sitio</a>
                     <button id="logoutBtn" class="btn-secondary">Cerrar Sesión</button>
@@ -503,12 +1389,13 @@ dashboard.html
 
     <main class="dashboard">
         <div class="container">
+
             <div class="dashboard-tabs">
                 <button class="tab-btn active" data-tab="products">Productos</button>
                 <button class="tab-btn" data-tab="config">Configuración</button>
             </div>
 
-            <!-- Productos Tab -->
+            <!-- TAB PRODUCTOS -->
             <div id="products-tab" class="tab-content active">
                 <div class="section-header">
                     <h2>Gestión de Productos</h2>
@@ -517,30 +1404,36 @@ dashboard.html
 
                 <div id="productsList" class="products-list"></div>
 
-                <!-- Modal Agregar/Editar Producto -->
+                <!-- MODAL AGREGAR/EDITAR -->
                 <div id="productModal" class="modal">
                     <div class="modal-content">
                         <span class="close">&times;</span>
                         <h3 id="modalTitle">Agregar Producto</h3>
+
                         <form id="productForm" enctype="multipart/form-data">
                             <input type="hidden" id="productId">
+
                             <div class="form-group">
                                 <label for="productName">Nombre *</label>
                                 <input type="text" id="productName" required>
                             </div>
+
                             <div class="form-group">
                                 <label for="productDescription">Descripción</label>
                                 <textarea id="productDescription" rows="4"></textarea>
                             </div>
+
                             <div class="form-group">
                                 <label for="productPrice">Precio</label>
                                 <input type="number" id="productPrice" step="0.01" min="0">
                             </div>
+
                             <div class="form-group">
                                 <label for="productImage">Imagen *</label>
                                 <input type="file" id="productImage" accept="image/*">
-                                <img id="imagePreview" style="display:none; max-width: 200px; margin-top: 10px;">
+                                <img id="imagePreview" style="display:none; max-width:200px; margin-top:10px;">
                             </div>
+
                             <div class="form-actions">
                                 <button type="submit" class="btn-primary">Guardar</button>
                                 <button type="button" class="btn-secondary" onclick="closeProductModal()">Cancelar</button>
@@ -550,30 +1443,275 @@ dashboard.html
                 </div>
             </div>
 
-            <!-- Configuración Tab -->
+            <!-- TAB CONFIGURACIÓN -->
             <div id="config-tab" class="tab-content">
+
                 <h2>Configuración del Sitio</h2>
+
                 <form id="configForm">
+
                     <div class="form-group">
                         <label for="primaryColor">Color Principal</label>
                         <input type="color" id="primaryColor">
                     </div>
+
                     <div class="form-group">
                         <label for="backgroundColor">Color de Fondo</label>
                         <input type="color" id="backgroundColor">
                     </div>
+
                     <div class="form-group">
-                        <label for="productBgColor">Color de Fondo de Productos</label>
+                        <label for="productBgColor">Color Fondo de Productos</label>
                         <input type="color" id="productBgColor">
                     </div>
+
+                    <!-- NUEVO CAMPO WHATSAPP -->
+                    <div class="form-group">
+                        <label for="whatsappNumber">Número de WhatsApp</label>
+                        <input type="text" id="whatsappNumber" placeholder="Ej: 1121820759">
+                    </div>
+
                     <button type="submit" class="btn-primary">Guardar Configuración</button>
                 </form>
+
             </div>
 
             <div id="message" class="message"></div>
+
         </div>
     </main>
 
     <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
+---------------------------------------
+###login.html####
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Login - El Rincón de la Sole</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <h2>Iniciar Sesión</h2>
+            <p class="subtitle">Panel de Administración</p>
+            
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Usuario</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Contraseña</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                
+                <button type="submit" class="btn-primary">Ingresar</button>
+            </form>
+            
+            <div class="auth-links">
+                <a href="/forgot-password">¿Olvidaste tu contraseña?</a>
+                <a href="/">Volver al inicio</a>
+            </div>
+            
+            <div id="message" class="message"></div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const messageDiv = document.getElementById('message');
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    localStorage.setItem('token', data.access_token);
+                    messageDiv.textContent = 'Inicio de sesión exitoso. Redirigiendo...';
+                    messageDiv.className = 'message success';
+                    setTimeout(() => {
+                        window.location.href = '/dashboard';
+                    }, 1000);
+                } else {
+                    messageDiv.textContent = data.detail || 'Error al iniciar sesión';
+                    messageDiv.className = 'message error';
+                }
+            } catch (error) {
+                messageDiv.textContent = 'Error de conexión';
+                messageDiv.className = 'message error';
+            }
+        });
+    </script>
+</body>
+</html>
+-------------------------------------
+###forgot_password###
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Recuperar Contraseña - El Rincón de la Sole</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <h2>Recuperar Contraseña</h2>
+            <p class="subtitle">Ingresa tu correo electrónico</p>
+            
+            <form id="forgotForm">
+                <div class="form-group">
+                    <label for="email">Correo Electrónico</label>
+                    <input type="email" id="email" name="email" required>
+                </div>
+                
+                <button type="submit" class="btn-primary">Enviar Enlace</button>
+            </form>
+            
+            <div class="auth-links">
+                <a href="/login">Volver al login</a>
+            </div>
+            
+            <div id="message" class="message"></div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('forgotForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const messageDiv = document.getElementById('message');
+            
+            try {
+                const response = await fetch('/api/forgot-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    messageDiv.textContent = 'Si el correo existe, recibirás un enlace para restablecer tu contraseña.';
+                    messageDiv.className = 'message success';
+                    document.getElementById('forgotForm').reset();
+                } else {
+                    messageDiv.textContent = data.detail || 'Error al procesar la solicitud';
+                    messageDiv.className = 'message error';
+                }
+            } catch (error) {
+                messageDiv.textContent = 'Error de conexión';
+                messageDiv.className = 'message error';
+            }
+        });
+    </script>
+</body>
+</html>
+-----------------------------------------
+###reset_password.html###
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Restablecer Contraseña - El Rincón de la Sole</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <h2>Restablecer Contraseña</h2>
+            <p class="subtitle">Ingresa tu nueva contraseña</p>
+            
+            <form id="resetForm">
+                <input type="hidden" id="token" value="{{ token }}">
+                
+                <div class="form-group">
+                    <label for="new_password">Nueva Contraseña</label>
+                    <input type="password" id="new_password" name="new_password" required minlength="6">
+                </div>
+                
+                <div class="form-group">
+                    <label for="confirm_password">Confirmar Contraseña</label>
+                    <input type="password" id="confirm_password" name="confirm_password" required minlength="6">
+                </div>
+                
+                <button type="submit" class="btn-primary">Restablecer</button>
+            </form>
+            
+            <div class="auth-links">
+                <a href="/login">Volver al login</a>
+            </div>
+            
+            <div id="message" class="message"></div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('resetForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const token = document.getElementById('token').value;
+            const newPassword = document.getElementById('new_password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            const messageDiv = document.getElementById('message');
+            
+            if (newPassword !== confirmPassword) {
+                messageDiv.textContent = 'Las contraseñas no coinciden';
+                messageDiv.className = 'message error';
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/reset-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ token, new_password: newPassword })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    messageDiv.textContent = 'Contraseña restablecida exitosamente. Redirigiendo...';
+                    messageDiv.className = 'message success';
+                    setTimeout(() => {
+                        window.location.href = '/login';
+                    }, 2000);
+                } else {
+                    messageDiv.textContent = data.detail || 'Error al restablecer la contraseña';
+                    messageDiv.className = 'message error';
+                }
+            } catch (error) {
+                messageDiv.textContent = 'Error de conexión';
+                messageDiv.className = 'message error';
+            }
+        });
+    </script>
 </body>
 </html>

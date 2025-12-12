@@ -31,8 +31,9 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "tu_password")
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 # Base de datos
-SQLALCHEMY_DATABASE_URL = "sqlite:///./el_rincon_de_la_sole.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
