@@ -177,7 +177,7 @@ def init_default_config(db: Session):
         db.commit()
 
 # Routes - Frontend
-@app.get("/", response_class=HTMLResponse)
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def home(request: Request, db: Session = Depends(get_db)):
     init_default_config(db)
     products = db.query(Product).all()
